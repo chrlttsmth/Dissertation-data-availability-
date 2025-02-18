@@ -1,0 +1,567 @@
+############making the data frames from the data exported from filemaker#################
+
+
+
+
+rm(list=ls(all=TRUE))
+#this above command clears ur environment the sane as the brush
+# Install readxl package (only necessary once)
+# install.packages("readxl")
+#if you import the excel file straight into r without converting into something 
+# Load readxl package
+library(readxl) #this allows us to import excel files 
+
+# Location of exported .xlsx file
+#setwd("/Users/erikpostma/OneDrive - University of Exeter/UG projects/SmithCharlotte/")
+getwd() #current working directory 
+
+# Import Excel file and create dataframe. No processing in Excel required.
+gl.data <- as.data.frame(read_xlsx("Glarus_easy_export_20241115.xlsx")) #turns it intoa dataframe 
+
+# Delete records without filename or family name or records that need to be checked
+gl.data <- gl.data[is.na(gl.data$FileName)==FALSE & 
+                     is.na(gl.data$FamilyNumber)==FALSE &
+                     is.na(gl.data$FamilyName)==FALSE &
+                     is.na(gl.data$Check)==TRUE & 
+                     is.na(gl.data$ParentOrChild)==FALSE &
+                     is.na(gl.data$MaleOrFemale)==FALSE &
+                     (is.na(gl.data$MarriageNumber)==TRUE | gl.data$MarriageNumber<2), ]
+#DATACLEANING AND Also only marriage number NA or it should be less than 2 - --just-- first marriage 
+
+# Extract Book from filename- i want to know the book it came from, i ask for characters 1-4 of the filename
+gl.data$Book <- substr(gl.data$FileName, 1, 4)
+#so now we have a new column called book!
+# Create family ID
+gl.data$FamilyID <- paste(gl.data$Book, gl.data$FamilyName, gl.data$FamilyNumber, sep="_")
+gl.data$FamilyID <- as.numeric(as.factor(gl.data$FamilyID))
+#make it an anon number. 
+
+# Replace NAs in DiedYoung, Single and Married with 0s
+gl.data$DiedYoung[is.na(gl.data$DiedYoung)==TRUE] <- 0
+gl.data$Single[is.na(gl.data$Single)==TRUE] <- 0
+gl.data$Single[gl.data$Single==FALSE] <- 0
+gl.data$Single[gl.data$Single==TRUE] <- 1
+gl.data$Married[is.na(gl.data$Married)==TRUE] <- 0
+#all the NAs= replace w 0s
+
+
+# Fix MaleOrFemale column
+gl.data$MaleOrFemale[gl.data$MaleOrFemale %in% c("female", "Female")] <- "Female"
+gl.data$MaleOrFemale[gl.data$MaleOrFemale %in% c("M", "male", "Male")] <- "Male"
+
+# Fix ParentOrChild column
+gl.data$ParentOrChild[gl.data$ParentOrChild %in% c("child", "Child")] <- "Child"
+gl.data$ParentOrChild[gl.data$ParentOrChild %in% c("parent", "Parent")] <- "Parent"
+
+
+table(gl.data$FamilyID, gl.data$ParentOrChild)
+
+table(gl.data$MaleOrFemale)
+# Remove unused columns and reorder retained columns
+gl.data <- subset(gl.data, select=c("FamilyID", 
+                                    "ParentOrChild", "MaleOrFemale",
+                                    "YoB","MoB","DoB", 
+                                    "YoM", "MoM", "DoM",
+                                    "YoD", "MoD", "DoD", 
+                                    "DiedYoung", "Single", "Married"))
+
+
+count.parents<-as.data.frame.matrix(table(gl.data$FamilyID,
+                                          gl.data$ParentOrChild))
+                                    
+# Create new dataframe with family-level sex ratio data
+                                  gl.data.children <- gl.data[gl.data$ParentOrChild=="Child"]
+                                    gl.family.data <- as.data.frame(table(gl.data.children$FamilyID, gl.data.children$MaleOrFemale))
+                                    colnames(gl.family.data) <- c("FamilyID", "MaleOrFemale", "Count")
+                                    n.males <- gl.family.data[gl.family.data$MaleOrFemale=="Male", c("FamilyID", "Count")]
+                                    colnames(n.males)[2] <- "n.males"
+                                    n.females <- gl.family.data[gl.family.data$MaleOrFemale=="Female", c("FamilyID", "Count")]
+                                    colnames(n.females)[2] <- "n.females"
+                                    
+                                    n.males.females <- merge(n.males, n.females, by="FamilyID", all=TRUE)
+                                    
+                                    # Create parental data frame
+                                    
+                                    gl.data.father <- gl.data[gl.data$ParentOrChild=="Parent" & gl.data$MaleOrFemale=="Male", 
+                                                              c("FamilyID", "YoB", "MoB", "DoB", "YoD", "MoD", "DoD")]
+                                    colnames(gl.data.father) <- c("FamilyID", "FatherYoB", "FatherMoB", "FatherDoB", "FatherYoD", "FatherMoD", "FatherDoD")
+                                    
+                                    gl.data.father.means <- aggregate(cbind(FatherYoB, FatherMoB, FatherDoB, FatherYoD, FatherMoD, FatherDoD) ~ FamilyID, data = gl.data.father, mean, na.rm=TRUE)
+                                    
+                                    
+                                    gl.data.mother <- gl.data[gl.data$ParentOrChild=="Parent" & gl.data$MaleOrFemale=="Female", 
+                                                              c("FamilyID", "YoB", "MoB", "DoB", "YoD", "MoD", "DoD", "YoM", "MoM", "DoM")]
+                                    colnames(gl.data.mother) <- c("FamilyID", "MotherYoB", "MotherMoB", "MotherDoB", "MotherYoD", "MotherMoD", "MotherDoD", "YoM", "MoM", "DoM")
+                                    
+                                    gl.data.mother.means <- aggregate(cbind(MotherYoB, MotherMoB, MotherDoB, MotherYoD, MotherMoD, MotherDoD, YoM, MoM, DoM) ~ 
+                                                                        FamilyID, data = gl.data.mother, mean, na.rm=TRUE)
+                                    
+                                    
+                                    
+                                
+                                    
+gl.data.parents <- merge(gl.data.father.means, gl.data.mother.means, by="FamilyID", all=TRUE)
+                                    
+                                    
+            
+gl.all <- merge(gl.data.parents, n.males.females, by="FamilyID", all=TRUE)
+                                    
+gl.all[gl.all$FamilyID==15,]
+                                    
+                                    
+                                    
+              
+                                    
+                                    
+                                    
+                                    
+                                    
+                                                          
+###########data analysis #######################################
+                                     
+########setting up initial dataframes################                        
+individual<-read.csv("individual_data.csv")
+family<-read.csv("family_data.csv")   
+
+
+
+
+
+
+
+########binomial test on the sum of males/total *across* families ###########
+
+#making all kids total column:
+family$totalkids <- family$Female+family$Male 
+#getting rid of rows where N/A kids, and making a new dataframe for this
+familieswithkids <- family[is.na(family$totalkids)==FALSE, ]
+
+#binomial test of sex ratio across families
+binom.test(sum(familieswithkids$Male), sum(familieswithkids$totalkids))
+
+
+
+
+##############Preparing to look at sex ratio of first and last born children in families ################
+
+
+#giving the family dataframe a new column with total children (male+ female)
+family$totalkids <- family$Female+family$Male 
+
+
+fi <- merge(family, individual, by = "FamilyID")
+
+#eliminating families without kids 
+fi <- fi[is.na(fi$totalkids)==FALSE, ]
+
+#including only the kids for each family 
+fi <- fi[fi$ParentOrChild=="Child", ]
+
+
+#new dataframe that concerns the youngest children in the fi dataframe
+#this gives us dataframe with the YOB for youngest child 
+fiyoungest<-aggregate(YoB~FamilyID,data=fi,max,na.rm=TRUE)
+
+#renamed the column
+colnames(fiyoungest)[2]<-"youngestyob"
+
+#merging the original dataframe and youngest dataframe by family ID 
+fiyoungest2<-merge(fi,fiyoungest,by="FamilyID")
+
+fiyoungestchild<-fiyoungest2[fiyoungest2$YoB==fiyoungest2$youngestyob, ]
+
+#removing rows where sex is N/A 
+fiyoungestchild <- fiyoungestchild[is.na(fiyoungestchild$MaleOrFemale)==FALSE, ]
+
+#new dataframe that concerns the oldest children in the fi dataframe
+#this gives us dataframe with the YOB for oldest child
+fioldest<-aggregate(YoB~FamilyID,data=fi,min,na.rm=TRUE)
+
+#renamed the column
+colnames(fioldest)[2]<-"oldestyob"
+
+#merging the original dataframe and oldest dataframe by family ID 
+fioldest2<-merge(fi,fioldest,by="FamilyID")
+
+fioldestchild<-fioldest2[fiyoungest2$YoB==fioldest2$oldestyob, ]
+
+#removing rows where sex=N/A 
+fioldestchild <- fioldestchild[is.na(fiyoungestchild$MaleOrFemale)==FALSE, ]
+
+#fioldestchild and fiyoungestchild contain oldest/youngest children, year of birth & their sex.
+
+################looking at sex ratio of the first and last born children in families, only children included################
+#ONLY CHILDREN INCLUDED
+#in youngest children (lastborns)
+table(fiyoungestchild$MaleOrFemale)
+#Female   Male 
+#675    693 
+675+693
+#=1368 total 
+#doing a binomial test on the lastborns (lastborn males/ all lastborn)
+binom.test(693,1368)#for lastborn
+
+#in oldest children (firstborns)
+table(fioldestchild$MaleOrFemale)
+#Female   Male 
+#676    682
+676+682
+#total 1358 firstborn kids 
+#binomial test on sex ratio of firstborn children (firstborn males/all firstborn)
+binom.test(682,1358)#for firstborn
+
+#####eliminating only children#######
+
+
+#creating dataframe with oldest children only when there are multiple children:
+oldestsibling <-fioldestchild[fioldestchild$totalkids >= 2,]
+#creating dataframe with youngest children only when there are multiple children:
+youngestsibling<-fiyoungestchild[fiyoungestchild$totalkids >= 2,]
+
+
+#####Binomial tests of sex ratio for oldest and youngest siblings, not counting only children. #######
+
+#binomial test for youngest siblings(no only children)
+table(youngestsibling$MaleOrFemale)
+539+567
+#total=1106, males=567
+binom.test(567,1106)
+
+#binomial testfor oldest siblings(no only children)
+table(oldestsibling$MaleOrFemale)
+540+556
+#total= 1096, males =556
+binom.test(556,1096)#for oldest siblings(no only children)
+
+
+
+
+
+
+
+
+
+###ACROSS CENTURIES: SEX RATIOS & BAR PLOTS###########
+############  preparing for total kids analysis######
+#using the "fi" dataframe from "looking at the sex ratio of the first and last born families"
+fif <- fi[is.na(fi$MaleOrFemale)==FALSE, ]
+
+
+######1600-1700#########
+sixsevtotalkids<-fif[fif$YoB>=1600 & fif$YoB<=1700,]
+table(sixsevtotalkids$MaleOrFemale)
+#477 females, #474 males #1 unknown
+#so the sex ratio=
+(474/477)*100
+#= sex ratio of 99.37107 for kids born between 1600-1700
+
+
+####1700-1800######
+seveightotalkids<-fif[fif$YoB>=1700 & fif$YoB<=1800,]
+table(seveightotalkids$MaleOrFemale)
+#538 females, #565 males 
+#so the sex ratio=
+(565/538)*100
+#= sex ratio of 105.0186 for kids born between 1700-1800
+
+####1800-1900######
+eightninetotalkids<-fif[fif$YoB>=1800 & fif$YoB<=1900,]
+table(eightninetotalkids$MaleOrFemale)
+#1139 females, #1179 males '#2 unkown
+#so the sex ratio=
+(1179/1139)*100
+#= sex ratio of 103.5119 for kids born between 1800-1900
+
+####1900-2000####
+ninetwenttotal<-fif[fif$YoB>=1900 & fif$YoB<=2000,]
+table(ninetwenttotal$MaleOrFemale)
+#432 females, #452 males 
+#so the sex ratio=
+(452/432)*100
+#= sex ratio of 104.6296 for kids born between 1900-2000
+####binomials on all children sex ratios per century######
+#1600-1700   #477 females, #474 males = 951
+binom.test(474,951)#1600-1700
+
+#1700-1800  #538 females, #565 males  =1103
+binom.test(565,1103) #1700-1800
+
+#1800-1900   #1139 females, #1179 males =2318
+binom.test(1179,2318) #1800-1900
+
+#1900-2000   #432 females, #452 males = 884
+binom.test(452,884) #1900-2000
+
+#summary of sex ratio values for total children per 100yrs
+#16-17  99.37107
+#17-18  105.0186
+#18-19  103.5119
+#19-20  104.6296
+
+sexratiosall <- c(99.37107,105.0186 ,103.5119 , 104.6296)  # y-values
+sexratiosallcenturies <- c("1600-1700", "1700-1800", "1800-1900", "1900-2000")  # x-values
+barplot(sexratiosall, 
+        names.arg = sexratiosallcenturies, ylim = c(0, 150), # Assign names to the bars
+        col = "cornflowerblue",         # Set the color of bars
+        main = "Bar Graph of Sex Ratio of All Children Born by Century",  # Title
+        xlab = "Year of Birth",     # Label for x-axis
+        ylab = "Sex Ratio ")         # Label for y axis
+
+
+abline(h = 100, col = "black", lwd = 2, lty = 2)
+abline(h = 0, col = "black", lwd = 2)
+
+
+##############preparing for  oldest siblings analysis#############
+####1600-1700#########
+#Creating a dataframe with kids (no only children) that have a YOB higher than 1600
+Osixteenthtoseventeenthcenturybiggerthansixteenth <-oldestsibling[oldestsibling$YoB >=1600,]
+#Creating a dataframe with kids (no only children) that have a YOB lower than 1700
+Osixteentoseventeenthcentury<-Osixteenthtoseventeenthcenturybiggerthansixteenth[Osixteenthtoseventeenthcenturybiggerthansixteenth$YoB<=1700,]
+
+table(Osixteentoseventeenthcentury$MaleOrFemale)
+#83 females, #74 males
+#so the sex ratio=
+(74/83)*100
+#= sex ratio of 89.15663 for oldest children w siblings between 1600-1700
+
+
+
+########1700-1800#########
+#Creating a dataframe with kids (no only children) that have a YOB higher than 1700
+Oseventeenthcenturytoeighteenthbiggerthanseventeenth <-oldestsibling[oldestsibling$YoB >=1700,]
+#Creating a dataframe with kids (no only children) that have a YOB lower than 1800
+Oseventeenthtoeighteenthcentury<-Oseventeenthcenturytoeighteenthbiggerthanseventeenth[Oseventeenthcenturytoeighteenthbiggerthanseventeenth$YoB<=1800,]
+
+
+table(Oseventeenthtoeighteenthcentury$MaleOrFemale)
+#86 females, #106 males
+#so the sex ratio=
+(106/86)*100
+#= sex ratio of 123.2558 for oldest children w siblings between 1700-1800
+
+
+########1800-1900#########
+
+#Creating a dataframe with kids (no only children) that have a YOB higher than 1800
+Oeighttonine1 <-oldestsibling[oldestsibling$YoB >=1800,]
+#Creating a dataframe with kids (no only children) that have a YOB lower than 1900
+Oeighttonine2<-Oeighttonine1[Oeighttonine1$YoB<=1900,]
+
+
+table(Oeighttonine2$MaleOrFemale)
+#244 females, #241 males
+#so the sex ratio=
+(241/244)*100
+#= sex ratio of 98.77049 for oldest children w siblings between 1800-1900
+
+########1900-2000#########
+
+#Creating a dataframe with kids (no only children) that have a YOB higher than 1900
+Oninetotwotwo1 <-oldestsibling[oldestsibling$YoB >=1900,]
+#Creating a dataframe with kids (no only children) that have a YOB lower than 2000
+Oninetotwotwo2<-Oninetotwotwo1[Oninetotwotwo1$YoB<=2000,]
+
+
+table(Oninetotwotwo2$MaleOrFemale)
+#126 females, #130 males
+#so the sex ratio=
+(130/126)*100
+#= sex ratio of 103.1746 for oldest children w siblings between 1800-1900
+
+
+#####summary of sex ratio for older sibs:#####
+#16-1700=89.15663
+#17-1800=123.2558
+#18-1900=98.77049
+#19-2000=103.1746
+######bar plot code for older sibs cross centuries######
+
+oldestsibsexratios <- c(89.15663, 123.2558, 98.77049, 103.1746)  # y-values
+oldestsibsexratioscenturies <- c("1600-1700", "1700-1800", "1800-1900", "1900-2000")  # x-values
+barplot(oldestsibsexratios, 
+        names.arg = oldestsibsexratioscenturies, ylim = c(0, 150), # Assign names to the bars
+        col = "aquamarine4",         # Set the color of bars
+        main = "Bar Graph of Sex Ratio of First-Born Siblings by Century",  # Title
+        xlab = "Year of Birth",     # Label for x-axis
+        ylab = "Sex Ratio (Males/Females)")         # Label for y axis
+
+
+abline(h = 100, col = "black", lwd = 2, lty = 2)
+abline(h = 0, col = "black", lwd = 2)
+
+
+
+
+
+
+
+
+#################STARTING FOR YOUNGEST SIBS#######
+########1600-1700#########
+
+#Creating a dataframe with kids (no only children) that have a YOB higher than 1600
+sixtosev1 <-youngestsibling[youngestsibling$YoB >=1600,]
+#Creating a dataframe with kids (no only children) that have a YOB lower than 1700
+sixtosev2<-sixtosev1[sixtosev1$YoB<=1700,]
+
+
+table(sixtosev2$MaleOrFemale)
+#79 females, #77 males
+#so the sex ratio=
+(77/79)*100
+#= sex ratio of 97.46835 for youngest children w siblings between 1600-1700
+
+########1700-1800#########
+
+#Creating a dataframe with kids (no only children) that have a YOB higher than 1700
+sevtoeigh1 <-youngestsibling[youngestsibling$YoB >=1700,]
+#Creating a dataframe with kids (no only children) that have a YOB lower than 1800
+sevtoeigh2<-sevtoeigh1[sevtoeigh1$YoB<=1800,]
+
+
+table(sevtoeigh1$MaleOrFemale)
+#460 females, #490 males
+#so the sex ratio=
+(490/460)*100
+#= sex ratio of 106.5217 for youngest children w siblings between 1700-1800
+
+
+########1800-1900#########
+
+#Creating a dataframe with kids (no only children) that have a YOB higher than 1800
+eightonine <-youngestsibling[youngestsibling$YoB >=1800,]
+#Creating a dataframe with kids (no only children) that have a YOB lower than 1900
+eightonine2<-eightonine[eightonine$YoB<=1900,]
+
+
+table(eightonine2$MaleOrFemale)
+#228 females, #247 males
+#so the sex ratio=
+(247/228)*100
+#= sex ratio of 108.3333 for youngest children w siblings between 1800-1900
+
+
+
+########1900-2000#########
+
+#Creating a dataframe with kids (no only children) that have a YOB higher than 1900
+ninetotwen <-youngestsibling[youngestsibling$YoB >=1900,]
+#Creating a dataframe with kids (no only children) that have a YOB lower than 2000
+ninetotwen2<-ninetotwen[ninetotwen$YoB<=2000,]
+
+table(ninetotwen$MaleOrFemale)
+#154 females, #154 males
+#so the sex ratio=
+(154/154)*100
+#= sex ratio of 100 for youngest children w siblings between 1900-2000
+#####summary of sex ratio for younger sibs:#####
+#16-1700=97.46835 
+#79 females, #77 males #156 total
+
+#17-1800=106.5217
+#460 females, #490 males #950 total 
+
+#18-1900=108.3333
+#228 females, #247 males #475 total
+
+#19-2000=100
+#154 females, #154 males #308 total
+
+########### a quick binom on the above, followed by plotting:#####
+#1600-1700
+binom.test(77,156)
+
+#1700-1800
+binom.test(490,950)
+
+#1800-1900
+binom.test(247,475)
+
+#1900-2000
+binom.test(154,308)
+
+youngsibsexratios <- c(97.46835,106.5217,108.3333,100)  # y-values
+youngsibsexratioscenturies <- c("1600-1700", "1700-1800", "1800-1900", "1900-2000")  # x-values
+barplot(youngsibsexratios, 
+        names.arg = youngsibsexratioscenturies, ylim = c(0, 150), # Assign names to the bars
+        col = "darkolivegreen",         # Set the color of bars
+        main = "Bar Graph of Sex Ratio of Last Born Siblings by Century",  # Title
+        xlab = "Year of Birth",     # Label for x-axis
+        ylab = "Sex Ratio ")         # Label for y axis
+
+
+abline(h = 100, col = "black", lwd = 2, lty = 2)
+abline(h = 0, col = "black", lwd = 2)
+
+
+
+
+
+
+
+
+
+
+#############sex ratio *per* family############### 
+
+#making a column with the total children in all kids total column:
+family$totalkids <- family$Female+family$Male 
+                                   
+               
+#excluding all families with no children and creating a new dataframe called familieswithkids
+familieswithkids <- family[is.na(family$totalkids)==FALSE, ]
+
+#making a new column with the sex ratio for each family
+#(males divided by total kids)
+familieswithkids$sexratio <- familieswithkids$Male/familieswithkids$totalkids
+              
+#i am interested in sex ratio PER family  
+
+#each element of the equation 
+P<-mean(familieswithkids$sexratio)
+N<-mean(familieswithkids$totalkids)
+var(familieswithkids$sexratio)
+Q<-1-P
+P*Q/N
+
+t.test(familieswithkids$sexratio, mu=0.5) # this would be okay, but the histogram below shows us that we dont have a normal distribution...
+#mu is our hypothetica lvalue 
+hist(familieswithkids$sexratio)
+
+#so we opt for a type of lm model 
+glmmodelbinom<-glm(cbind(Male, Female)~1,data=familieswithkids,family=binomial)
+
+#a type of lm model for when our variance is high, because it is..
+glmmodelqbinom<-glm(cbind(Male, Female)~1,data=familieswithkids,family=quasibinomial)
+summary(glmmodelqbinom)
+1806/1364
+
+library(lme4)
+trickystats<-glmer(cbind(Male,Female)~1+(1|FamilyID),data=familieswithkids,family=binomial)
+summary(trickystats)
+trickystats2<-glm(cbind(Male,Female)~1,data=familieswithkids,family=binomial)
+anova(trickystats,trickystats2,test = "Chi")
+ 
+
+####trivers-willard####
+d <- read.csv("family_data_new.csv")
+d <- d[is.na(d$Status)==F, ]
+library(lme4)
+model <- glmer(cbind(Male, Female) ~ 1+(1|FamilyID), data = d, family = binomial)
+summary(model) #tests for variation among families 
+
+status.model <- glmer(cbind(Male, Female) ~ Status+(1|FamilyID), data = d, family = binomial)
+summary(status.model)
+anova(status.model,model)
+
+d$Sexratio <- d$Male/(d$Male + d$Female)
+hist(d$Sexratio)
+
+plot(Sexratio ~ Status, data=d, pch=20, col=rgb(0,0,0,0.4), cex=1.5,)
+
+d$predicted.sexratio <- predict(status.model, type="response") 
+lines(predicted.sexratio[order(d$Status)] ~ sort(Status), data = d)
+
+######citing R#####
+citation()
